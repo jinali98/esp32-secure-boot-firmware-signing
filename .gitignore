@@ -1,0 +1,17 @@
+# Key material: never commit. Patterns cover today's names and the planned ones
+# (.key for Ed25519, .pem for the RSA-3072 follow-up).
+privkey.txt
+pubkey.txt
+*.key
+*.pem
+
+# Test inputs and outputs from the sign/verify CLI
+firmware.bin
+*.sig
+
+# Built binaries (go build -o cli .)
+/cmd/cli
+/cli
+
+# macOS
+.DS_Store
