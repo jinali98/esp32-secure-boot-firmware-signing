@@ -5,6 +5,17 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+)
+
+const (
+	keyDir        = "keys"
+	signatureFile = "firmware.sig"
+)
+
+var (
+	privateKeyFile = filepath.Join(keyDir, "private.key")
+	publicKeyFile  = filepath.Join(keyDir, "public.key")
 )
 
 func main() {
@@ -18,24 +29,34 @@ func main() {
 
 	switch cmdValue[0] {
 	case "keygen":
-		keygen()
-		fmt.Println("wrote privkey.txt and pubkey.txt")
-	case "verify":
-		if len(cmdValue) < 2 {
-			usage()
-		}
-		if verify(cmdValue[1]) {
-			fmt.Println("VALID")
-		} else {
-			fmt.Println("INVALID")
+		if err := keygen(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+		fmt.Println("wrote", privateKeyFile, "and", publicKeyFile)
 	case "sign":
 		if len(cmdValue) < 2 {
 			usage()
 		}
-		sign(cmdValue[1])
-		fmt.Println("wrote firmware.sig")
+		if err := sign(cmdValue[1]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Println("wrote", signatureFile)
+	case "verify":
+		if len(cmdValue) < 2 {
+			usage()
+		}
+		isValid, err := verify(cmdValue[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if !isValid {
+			fmt.Println("INVALID")
+			os.Exit(1)
+		}
+		fmt.Println("VALID")
 	default:
 		usage()
 	}
@@ -47,106 +68,78 @@ func usage() {
 	os.Exit(1)
 }
 
-func keygen() {
-
-	// generate the key pair
-	pubKey, privkey, err := ed25519.GenerateKey(nil)
-
-	// handle any error
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "generating key failed: %v\n", err)
-		os.Exit(1)
-	}
-	// write the keys to a folder /keys/prv_date.key keys/pub_date.key
-	k1 := []byte(privkey)
-	k2 := []byte(pubKey)
-
-	err = os.WriteFile("pubkey.txt", k2, 0600)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "writing public key: %v\n", err)
-		os.Exit(1)
+func keygen() error {
+	// 0700: only the owner can list or enter the folder holding the private key.
+	if err := os.MkdirAll(keyDir, 0700); err != nil {
+		return fmt.Errorf("creating %s: %w", keyDir, err)
 	}
 
-	err = os.WriteFile("privkey.txt", k1, 0600)
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "writing private key: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("generating key: %w", err)
 	}
 
+	err = os.WriteFile(privateKeyFile, privateKey, 0600)
+	if err != nil {
+		return fmt.Errorf("writing private key: %w", err)
+	}
+
+	err = os.WriteFile(publicKeyFile, publicKey, 0644)
+	if err != nil {
+		return fmt.Errorf("writing public key: %w", err)
+	}
+
+	return nil
 }
 
-func sign(codePath string) {
-
-	// read the key file
-	privateKey, err := os.ReadFile("privkey.txt")
-
+func sign(codePath string) error {
+	privateKey, err := os.ReadFile(privateKeyFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading private key: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("reading private key: %w", err)
 	}
 
 	if len(privateKey) != ed25519.PrivateKeySize {
-		fmt.Fprintf(os.Stderr, "private key must be %d bytes, got %d\n", ed25519.PrivateKeySize, len(privateKey))
-		os.Exit(1)
+		return fmt.Errorf("private key must be %d bytes, got %d", ed25519.PrivateKeySize, len(privateKey))
 	}
 
-	// read the code file
 	content, err := os.ReadFile(codePath)
-
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading firmware: %v\n", err)
-
-		os.Exit(1)
+		return fmt.Errorf("reading firmware: %w", err)
 	}
 
-	// sign the msg
-	signature := ed25519.Sign(privateKey, content)
+	sig := ed25519.Sign(privateKey, content)
 
-	err = os.WriteFile("firmware.sig", signature, 0600)
+	err = os.WriteFile(signatureFile, sig, 0644)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "writing signature failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("writing signature: %w", err)
 	}
 
+	return nil
 }
 
-func verify(codePath string) bool {
-
-	// read the public file
-	publicKey, err := os.ReadFile("pubkey.txt")
-
+func verify(codePath string) (bool, error) {
+	publicKey, err := os.ReadFile(publicKeyFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading public key: %v\n", err)
-		os.Exit(1)
+		return false, fmt.Errorf("reading public key: %w", err)
 	}
 
 	if len(publicKey) != ed25519.PublicKeySize {
-		fmt.Fprintf(os.Stderr, "public key must be %d bytes, got %d\n", ed25519.PublicKeySize, len(publicKey))
-		os.Exit(1)
+		return false, fmt.Errorf("public key must be %d bytes, got %d", ed25519.PublicKeySize, len(publicKey))
 	}
 
-	// read the code file
 	content, err := os.ReadFile(codePath)
-
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading firmware: %v\n", err)
-		os.Exit(1)
+		return false, fmt.Errorf("reading firmware: %w", err)
 	}
 
-	// read the signature file
-	sig, err := os.ReadFile("firmware.sig")
-
+	sig, err := os.ReadFile(signatureFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading firmware signature: %v\n", err)
-		os.Exit(1)
+		return false, fmt.Errorf("reading signature: %w", err)
 	}
 
 	if len(sig) != ed25519.SignatureSize {
-		fmt.Fprintf(os.Stderr, "corrupt signature file: must be %d bytes, got %d\n", ed25519.SignatureSize, len(sig))
-		os.Exit(1)
+		return false, fmt.Errorf("corrupt signature file: must be %d bytes, got %d", ed25519.SignatureSize, len(sig))
 	}
 
-	isValid := ed25519.Verify(publicKey, content, sig)
-
-	return isValid
+	return ed25519.Verify(publicKey, content, sig), nil
 }

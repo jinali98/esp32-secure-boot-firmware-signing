@@ -1,7 +1,6 @@
-# Key material: never commit. Patterns cover today's names and the planned ones
-# (.key for Ed25519, .pem for the RSA-3072 follow-up).
-privkey.txt
-pubkey.txt
+# Key material: never commit. keygen writes keys/ in the folder it runs from;
+# the patterns are a backstop for key files outside it.
+keys/
 *.key
 *.pem
 
@@ -9,9 +8,9 @@ pubkey.txt
 firmware.bin
 *.sig
 
-# Built binaries (go build -o cli .)
-/cmd/cli
-/cli
+# Built binaries (go build -o rsa-cli . inside cmd/rsa)
+rsa-cli
+ed25519-cli
 
 # macOS
 .DS_Store

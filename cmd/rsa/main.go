@@ -10,12 +10,17 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 const (
-	privateKeyFile = "privateKey.pem"
-	publicKeyFile  = "publicKey.pem"
-	signatureFile  = "firmware.sig"
+	keyDir        = "keys"
+	signatureFile = "firmware.sig"
+)
+
+var (
+	privateKeyFile = filepath.Join(keyDir, "private.pem")
+	publicKeyFile  = filepath.Join(keyDir, "public.pem")
 )
 
 // pssOptions matches ESP32 Secure Boot V2: SHA-256 and a 32-byte salt.
@@ -72,9 +77,13 @@ func usage() {
 	os.Exit(1)
 }
 
-// keygen creates an RSA-3072 key pair and writes it as PEM files:
 // the private key as PKCS #8, the public key as PKIX.
 func keygen() error {
+	// 0700: only the owner can list or enter the folder holding the private key.
+	if err := os.MkdirAll(keyDir, 0700); err != nil {
+		return fmt.Errorf("creating %s: %w", keyDir, err)
+	}
+
 	privateKey, err := rsa.GenerateKey(rand.Reader, 3072)
 	if err != nil {
 		return fmt.Errorf("generating key: %w", err)
@@ -158,9 +167,6 @@ func sign(codePath string) error {
 	return nil
 }
 
-// verify checks signatureFile against the file at codePath.
-// It returns false with a nil error when the signature doesn't match,
-// and a non-nil error when it couldn't run the check at all.
 func verify(codePath string) (bool, error) {
 	// read the public key file
 	encodedPublicKey, err := os.ReadFile(publicKeyFile)
@@ -194,7 +200,6 @@ func verify(codePath string) (bool, error) {
 		return false, fmt.Errorf("public key is %T, not RSA", key)
 	}
 
-	// a wrong length would just give INVALID; a clear error is more useful
 	if len(sig) != publicKey.Size() {
 		return false, fmt.Errorf("corrupt signature file: must be %d bytes, got %d", publicKey.Size(), len(sig))
 	}
